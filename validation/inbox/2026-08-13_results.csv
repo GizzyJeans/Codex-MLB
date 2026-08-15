@@ -1,0 +1,16 @@
+prediction_id,game_date,game_pk,away,home,away_score,home_score,closing_total,closing_away_win_probability,closing_line,closing_hk_price,closing_selection_probability,result_source,notes
+,2026-08-13,823672,BAL,MIN,5,7,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,823017,PHI,STL,1,7,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,824967,TB,ATH,8,4,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,825047,COL,AZ,6,4,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,823187,HOU,SF,2,1,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,823263,MIL,SD,3,4,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,823833,PIT,MIA,2,8,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,824241,CLE,DET,6,4,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,822698,CHC,WSH,12,6,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,823511,SEA,NYY,5,10,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,822779,BOS,TOR,4,6,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,824883,NYM,ATL,3,6,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,824562,CIN,CWS,0,5,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,823994,TEX,LAA,2,5,,,,,,MLB StatsAPI schedule 2026-08-12,Final F
+,2026-08-13,823916,KC,LAD,2,4,,,,,,MLB StatsAPI schedule 2026-08-12,Final F

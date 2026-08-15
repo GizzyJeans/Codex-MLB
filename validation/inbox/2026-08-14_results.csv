@@ -1,0 +1,10 @@
+prediction_id,game_date,game_pk,away,home,away_score,home_score,closing_total,closing_away_win_probability,closing_line,closing_hk_price,closing_selection_probability,result_source,notes
+,2026-08-14,823829,PIT,MIA,13,1,,,,,,MLB Stats API,Final
+,2026-08-14,824238,CLE,DET,0,3,,,,,,MLB Stats API,Final
+,2026-08-14,823508,SEA,NYY,1,0,,,,,,MLB Stats API,Final
+,2026-08-14,824561,CIN,CWS,9,8,,,,,,MLB Stats API,Final
+,2026-08-14,822776,BOS,TOR,7,0,,,,,,MLB Stats API,Final
+,2026-08-14,822696,CHC,WSH,0,7,,,,,,MLB Stats API,Final
+,2026-08-14,823669,PHI,MIN,7,1,,,,,,MLB Stats API,Final
+,2026-08-14,823995,TEX,LAA,0,7,,,,,,MLB Stats API,Final
+,2026-08-14,823915,MIL,LAD,5,4,,,,,,MLB Stats API,Final

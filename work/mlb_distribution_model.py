@@ -8,6 +8,18 @@ from math import exp, lgamma, log
 ALPHA = 0.12  # Gamma-Poisson overdispersion: Var(R) = mu + alpha * mu^2.
 MAX_RUNS = 35
 
+# Selection policy calibrated after the 2026-08-10 postmortem. A quoted EV is
+# not enough on its own: totals must survive a modest error in the projected
+# scoring environment, while sides must also stay reasonably close to the
+# de-vigged public consensus.
+TOTAL_FORMAL_MIN_EV = 0.06
+TOTAL_MEAN_STRESS_RUNS = 0.30
+TOTAL_WORST_CASE_MIN_EV = 0.00
+SIDE_FORMAL_MIN_EV = 0.04
+SIDE_MEAN_STRESS_RUNS = 0.40
+SIDE_WORST_CASE_MIN_EV = 0.00
+SIDE_MAX_MARKET_GAP = 0.04
+
 
 @dataclass(frozen=True)
 class Game:
@@ -213,6 +225,104 @@ def total_metrics(dist, line: tuple, side: str, hk: float):
     }
 
 
+def move_total_mean(away_mu: float, home_mu: float, delta: float) -> tuple[float, float]:
+    """Move the game total mean while preserving the teams' scoring ratio."""
+    total_mu = away_mu + home_mu
+    if total_mu <= 0:
+        raise ValueError("run means must sum to a positive value")
+    stressed_total = max(0.10, total_mu + delta)
+    scale = stressed_total / total_mu
+    return away_mu * scale, home_mu * scale
+
+
+def stressed_total_metrics(
+    away_mu: float,
+    home_mu: float,
+    line: tuple,
+    side: str,
+    hk: float,
+    stress_runs: float = TOTAL_MEAN_STRESS_RUNS,
+):
+    """Reprice a total after an adverse scoring-mean move.
+
+    Overs are stressed by lowering the combined mean; unders are stressed by
+    raising it. This catches small nominal edges that disappear when the run
+    projection is wrong by only a few tenths.
+    """
+    if side not in {"over", "under"}:
+        raise ValueError(f"unsupported total side: {side}")
+    delta = -stress_runs if side == "over" else stress_runs
+    stressed_away, stressed_home = move_total_mean(away_mu, home_mu, delta)
+    metrics = total_metrics(final_score_dist(stressed_away, stressed_home), line, side, hk)
+    return {
+        **metrics,
+        "away_mu": stressed_away,
+        "home_mu": stressed_home,
+        "stress_runs": stress_runs,
+    }
+
+
+def classify_total_pick(base_metrics: dict, stress_metrics: dict) -> str:
+    """Return FORMAL only for totals with both sufficient and robust EV."""
+    if (
+        base_metrics["ev"] >= TOTAL_FORMAL_MIN_EV
+        and stress_metrics["ev"] >= TOTAL_WORST_CASE_MIN_EV
+    ):
+        return "FORMAL"
+    if base_metrics["ev"] > 0:
+        return "WATCH"
+    return "PASS"
+
+
+def away_cover_probability(dist, away_run_line: float) -> float:
+    """Probability that the away team covers a standard half-run spread."""
+    return sum(
+        mass
+        for (away_runs, home_runs), mass in dist.items()
+        if away_runs + away_run_line > home_runs
+    )
+
+
+def stressed_side_metrics(
+    game: Game,
+    back_away: bool,
+    hk: float,
+    market_prob: float,
+    stress_runs: float = SIDE_MEAN_STRESS_RUNS,
+):
+    """Reprice a side after reducing the backed team's run mean."""
+    away_mu, home_mu = game.away_mu, game.home_mu
+    if back_away:
+        away_mu = max(0.10, away_mu - stress_runs)
+    else:
+        home_mu = max(0.10, home_mu - stress_runs)
+    away_cover = away_cover_probability(final_score_dist(away_mu, home_mu), game.away_run_line)
+    prob = away_cover if back_away else 1 - away_cover
+    metrics = binary_metrics(prob, hk, market_prob)
+    return {
+        **metrics,
+        "away_mu": away_mu,
+        "home_mu": home_mu,
+        "stress_runs": stress_runs,
+    }
+
+
+def classify_side_pick(base_metrics: dict, stress_metrics: dict) -> str:
+    """Classify a side using EV, robustness and public-market agreement."""
+    if base_metrics["ev"] <= 0:
+        return "PASS"
+    if abs(base_metrics["gap"]) > SIDE_MAX_MARKET_GAP:
+        return "CONFLICT"
+    if (
+        base_metrics["ev"] >= SIDE_FORMAL_MIN_EV
+        and stress_metrics["ev"] >= SIDE_WORST_CASE_MIN_EV
+    ):
+        return "FORMAL"
+    if base_metrics["ev"] >= SIDE_FORMAL_MIN_EV:
+        return "CONDITIONAL"
+    return "WATCH"
+
+
 def pct(x):
     return f"{100*x:6.2f}%"
 
@@ -224,33 +334,91 @@ def fmt(m):
     )
 
 
-for g in GAMES:
+def analyze_game(g: Game):
     dist = final_score_dist(g.away_mu, g.home_mu)
-    if g.away_run_line == -1.5:
-        away_cover = sum(p for (a, h), p in dist.items() if a - h >= 2)
-    else:
-        away_cover = sum(p for (a, h), p in dist.items() if a - h >= -1)
+    away_cover = away_cover_probability(dist, g.away_run_line)
     home_cover = 1 - away_cover
     mkt_away, mkt_home = devig_pair(g.rl_away_hk, g.rl_home_hk)
     a_metrics = binary_metrics(away_cover, g.rl_away_hk, mkt_away)
     h_metrics = binary_metrics(home_cover, g.rl_home_hk, mkt_home)
     o_metrics = total_metrics(dist, g.total_line, "over", g.total_hk)
     u_metrics = total_metrics(dist, g.total_line, "under", g.total_hk)
+    o_stress = stressed_total_metrics(
+        g.away_mu, g.home_mu, g.total_line, "over", g.total_hk
+    )
+    u_stress = stressed_total_metrics(
+        g.away_mu, g.home_mu, g.total_line, "under", g.total_hk
+    )
     print(f"\n{g.away}@{g.home} mu={g.away_mu:.2f}-{g.home_mu:.2f} line={g.total_line}")
     print(f"  away {g.away_run_line:+.1f}", fmt(a_metrics), f"mkt={pct(mkt_away)}")
     print(f"  home {-g.away_run_line:+.1f}", fmt(h_metrics), f"mkt={pct(mkt_home)}")
-    print("  over      ", fmt(o_metrics))
-    print("  under     ", fmt(u_metrics))
+    print(
+        "  over      ",
+        fmt(o_metrics),
+        f"stressEV={pct(o_stress['ev'])} {classify_total_pick(o_metrics, o_stress)}",
+    )
+    print(
+        "  under     ",
+        fmt(u_metrics),
+        f"stressEV={pct(u_stress['ev'])} {classify_total_pick(u_metrics, u_stress)}",
+    )
     pub_line, over_us, under_us, over_book, under_book = PUBLIC_TOTALS[f"{g.away}@{g.home}"]
     public_spec = (pub_line, "half" if pub_line % 1 else "flat", 0)
     po = total_metrics(dist, public_spec, "over", american_to_hk(over_us))
     pu = total_metrics(dist, public_spec, "under", american_to_hk(under_us))
-    print(f"  public O{pub_line:g} {over_us:+g} {over_book:<12}", fmt(po))
-    print(f"  public U{pub_line:g} {under_us:+g} {under_book:<12}", fmt(pu))
+    po_stress = stressed_total_metrics(
+        g.away_mu, g.home_mu, public_spec, "over", american_to_hk(over_us)
+    )
+    pu_stress = stressed_total_metrics(
+        g.away_mu, g.home_mu, public_spec, "under", american_to_hk(under_us)
+    )
+    print(
+        f"  public O{pub_line:g} {over_us:+g} {over_book:<12}",
+        fmt(po),
+        f"stressEV={pct(po_stress['ev'])} {classify_total_pick(po, po_stress)}",
+    )
+    print(
+        f"  public U{pub_line:g} {under_us:+g} {under_book:<12}",
+        fmt(pu),
+        f"stressEV={pct(pu_stress['ev'])} {classify_total_pick(pu, pu_stress)}",
+    )
     _, cons_a_us, cons_h_us, best_a_us, best_a_book, best_h_us, best_h_book = PUBLIC_RL[f"{g.away}@{g.home}"]
     cons_a_hk, cons_h_hk = american_to_hk(cons_a_us), american_to_hk(cons_h_us)
     cons_a_p, cons_h_p = devig_pair(cons_a_hk, cons_h_hk)
     best_a = binary_metrics(away_cover, american_to_hk(best_a_us), cons_a_p)
     best_h = binary_metrics(home_cover, american_to_hk(best_h_us), cons_h_p)
-    print(f"  best awayRL {best_a_us:+g} {best_a_book:<12}", fmt(best_a), f"cons={pct(cons_a_p)}")
-    print(f"  best homeRL {best_h_us:+g} {best_h_book:<12}", fmt(best_h), f"cons={pct(cons_h_p)}")
+    best_a_stress = stressed_side_metrics(
+        g, True, american_to_hk(best_a_us), cons_a_p
+    )
+    best_h_stress = stressed_side_metrics(
+        g, False, american_to_hk(best_h_us), cons_h_p
+    )
+    print(
+        f"  best awayRL {best_a_us:+g} {best_a_book:<12}",
+        fmt(best_a),
+        f"cons={pct(cons_a_p)} stressEV={pct(best_a_stress['ev'])}",
+        classify_side_pick(best_a, best_a_stress),
+    )
+    print(
+        f"  best homeRL {best_h_us:+g} {best_h_book:<12}",
+        fmt(best_h),
+        f"cons={pct(cons_h_p)} stressEV={pct(best_h_stress['ev'])}",
+        classify_side_pick(best_h, best_h_stress),
+    )
+
+
+def main():
+    print(
+        "Selection policy: "
+        f"totals EV>={pct(TOTAL_FORMAL_MIN_EV)} and adverse {TOTAL_MEAN_STRESS_RUNS:.1f}-run "
+        f"stress EV>={pct(TOTAL_WORST_CASE_MIN_EV)}; "
+        f"sides EV>={pct(SIDE_FORMAL_MIN_EV)}, adverse {SIDE_MEAN_STRESS_RUNS:.1f}-run "
+        f"stress EV>={pct(SIDE_WORST_CASE_MIN_EV)}, "
+        f"market gap<={100 * SIDE_MAX_MARKET_GAP:.1f}pp."
+    )
+    for game in GAMES:
+        analyze_game(game)
+
+
+if __name__ == "__main__":
+    main()
